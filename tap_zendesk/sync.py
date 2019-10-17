@@ -8,7 +8,6 @@ from singer import metadata
 from singer import Transformer
 
 LOGGER = singer.get_logger()
-logging = LoggerFactory.get_logger(__name__)
 
 def process_record(record):
     """ Serializes Zenpy's internal classes into Python objects via ZendeskEncoder. """
