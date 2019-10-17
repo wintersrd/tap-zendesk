@@ -7,8 +7,6 @@ import singer.metrics as metrics
 from singer import metadata
 from singer import Transformer
 
-from data_tools.logging import LoggerFactory
-
 LOGGER = singer.get_logger()
 logging = LoggerFactory.get_logger(__name__)
 
@@ -42,8 +40,7 @@ def sync_stream(state, start_date, instance):
 
                 singer.write_record(stream.tap_stream_id, rec)
             except:
-                logging.warning("Error processing record")
-                logging.warning(str(record))
+                print("Skipping: " + str(record))
             # NB: We will only write state at the end of a stream's sync:
             #  We may find out that there exists a sync that takes too long and can never emit a bookmark
             #  but we don't know if we can guarentee the order of emitted records.
