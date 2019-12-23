@@ -32,7 +32,7 @@ def request_metrics_patch(self, method, url, **kwargs):
         return request(self, method, url, **kwargs)
 
 
-Session.request = request_metrics_patch
+# Session.request = request_metrics_patch
 # end patch
 
 
