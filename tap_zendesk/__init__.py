@@ -98,12 +98,12 @@ def do_sync(client, catalog, state, start_date):
     validate_dependencies(selected_stream_names)
     populate_class_schemas(catalog, selected_stream_names)
     all_sub_stream_names = get_sub_stream_names()
-
+    skipped_streams = []
     for stream in catalog.streams:
         stream_name = stream.tap_stream_id
         mdata = metadata.to_map(stream.metadata)
         if stream_name not in selected_stream_names:
-            LOGGER.info("%s: Skipping - not selected", stream_name)
+            skipped_streams.append(stream_name)
             continue
 
         # if starting_stream:
@@ -141,6 +141,8 @@ def do_sync(client, catalog, state, start_date):
 
         # singer.write_state(state)
         LOGGER.info("%s: Completed sync (%s rows)", stream_name, counter_value)
+        if skipped_streams:
+            LOGGER.info("The following streams were skipped: {}".format(", ".join(skipped_streams)))
         zendesk_metrics.log_aggregate_rates()
 
     singer.write_state(state)
@@ -205,4 +207,3 @@ def main():
     elif parsed_args.catalog:
         state = parsed_args.state or {}
         do_sync(client, parsed_args.catalog, state, parsed_args.config["start_date"])
-
