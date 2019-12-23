@@ -1,4 +1,7 @@
+import copy
+from datetime import datetime as dt
 import json
+import os
 from zenpy.lib.api_objects import BaseObject
 from zenpy.lib.proxy import ProxyList
 
@@ -17,14 +20,22 @@ def process_record(record):
     return rec_dict
 
 
-def sync_stream(state, start_date, instance):
+def sync_stream(state, start_date, instance, override_date=None):
     stream = instance.stream
 
     # If we have a bookmark, use it; otherwise use start_date
-    if instance.replication_method == "INCREMENTAL" and not state.get("bookmarks", {}).get(
+    if override_date:
+        start = dt.strptime(override_date, "%Y-%m-%d").strftime("%Y-%m-%dT00:00:00Z")
+        singer.write_bookmark(state, stream.tap_stream_id, instance.replication_key, start)
+    elif instance.replication_method == "INCREMENTAL" and not state.get("bookmarks", {}).get(
         stream.tap_stream_id, {}
     ).get(instance.replication_key):
         singer.write_bookmark(state, stream.tap_stream_id, instance.replication_key, start_date)
+        LOGGER.info("Writing initial bookmark")
+    elif instance.replication_method == "INCREMENTAL":
+        LOGGER.info("Bookmark already exists")
+    else:
+        LOGGER.info("Full replication, no bookmark required")
 
     parent_stream = stream
     with metrics.record_counter(stream.tap_stream_id) as counter, Transformer() as transformer:
@@ -45,8 +56,7 @@ def sync_stream(state, start_date, instance):
             # NB: We will only write state at the end of a stream's sync:
             #  We may find out that there exists a sync that takes too long and can never emit a bookmark
             #  but we don't know if we can guarentee the order of emitted records.
-
-        singer.write_state(state)
+            # singer.write_state(state)
         return counter.value
 
 

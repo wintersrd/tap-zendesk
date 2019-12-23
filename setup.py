@@ -10,7 +10,7 @@ setup(
     url="https://singer.io",
     classifiers=["Programming Language :: Python :: 3 :: Only"],
     py_modules=["tap_zendesk"],
-    install_requires=["singer-python==5.9.0", "zenpy==2.0.16", "pytz==2019.3"],
+    install_requires=["singer-python==5.9.0", "zenpy==2.0", "pytz==2018.4", "backoff==1.8.0"],
     extras_require={"dev": ["ipdb", "pylint", "nose", "nose-watch"]},
     entry_points="""
           [console_scripts]

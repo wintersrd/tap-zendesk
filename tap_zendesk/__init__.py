@@ -139,7 +139,7 @@ def do_sync(client, catalog, state, start_date):
         instance = STREAMS[stream_name](client)
         counter_value = sync_stream(state, start_date, instance)
 
-        singer.write_state(state)
+        # singer.write_state(state)
         LOGGER.info("%s: Completed sync (%s rows)", stream_name, counter_value)
         zendesk_metrics.log_aggregate_rates()
 
@@ -197,13 +197,12 @@ def main():
     creds = oauth_auth(parsed_args) or api_token_auth(parsed_args)
     session = get_session(parsed_args.config)
     client = Zenpy(session=session, **creds)
-
     if not client:
         LOGGER.error("""No suitable authentication keys provided.""")
 
     if parsed_args.discover:
         do_discover(client)
     elif parsed_args.catalog:
-        state = parsed_args.state
+        state = parsed_args.state or {}
         do_sync(client, parsed_args.catalog, state, parsed_args.config["start_date"])
 

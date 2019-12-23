@@ -209,6 +209,7 @@ class Tickets(Stream):
 
     def sync(self, state):
         bookmark = self.get_bookmark(state)
+        LOGGER.info(f"Starting from {state}")
         tickets = self.client.tickets.incremental(start_time=bookmark)
 
         audits_stream = TicketAudits(self.client)
