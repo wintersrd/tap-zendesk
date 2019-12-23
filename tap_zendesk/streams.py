@@ -250,7 +250,7 @@ class Tickets(Stream):
                         counter = 0
                         while counter < 3:
                             try:
-                                zendesk_metrics.capture("ticket_audit")
+                                # zendesk_metrics.capture("ticket_audit")
                                 self._buffer_record(audit)
                                 break
                             except:
@@ -269,7 +269,7 @@ class Tickets(Stream):
                         counter = 0
                         while counter < 3:
                             try:
-                                zendesk_metrics.capture("ticket_metric")
+                                # zendesk_metrics.capture("ticket_metric")
                                 self._buffer_record(metric)
                                 break
                             except:
@@ -290,7 +290,7 @@ class Tickets(Stream):
                         counter = 0
                         while counter < 3:
                             try:
-                                zendesk_metrics.capture("ticket_comment")
+                                # zendesk_metrics.capture("ticket_comment")
                                 comment[1].ticket_id = ticket_dict["id"]
                                 self._buffer_record(comment)
                                 break
@@ -310,14 +310,14 @@ class Tickets(Stream):
                 emit_sub_stream_metrics(audits_stream)
                 emit_sub_stream_metrics(metrics_stream)
                 emit_sub_stream_metrics(comments_stream)
-                singer.write_state(state)
+                # singer.write_state(state)
 
         for rec in self._empty_buffer():
             yield rec
         emit_sub_stream_metrics(audits_stream)
         emit_sub_stream_metrics(metrics_stream)
         emit_sub_stream_metrics(comments_stream)
-        singer.write_state(state)
+        # singer.write_state(state)
 
 
 class TicketAudits(Stream):
