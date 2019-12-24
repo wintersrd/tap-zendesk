@@ -239,7 +239,7 @@ class Tickets(Stream):
                         with lock:
                             zendesk_metrics.capture("ticket_audit")
                             self._buffer_record(audit)
-                except RecordNotFoundException:
+                except:
                     LOGGER.warning(
                         "Unable to retrieve audits for ticket (ID: %s), "
                         "the Zendesk API returned a RecordNotFound error",
@@ -253,7 +253,7 @@ class Tickets(Stream):
                         with lock:
                             zendesk_metrics.capture("ticket_metric")
                             self._buffer_record(metric)
-                except RecordNotFoundException:
+                except:
                     LOGGER.warning(
                         "Unable to retrieve metrics for ticket (ID: %s), "
                         "the Zendesk API returned a RecordNotFound error",
@@ -270,7 +270,7 @@ class Tickets(Stream):
                             zendesk_metrics.capture("ticket_comment")
                             comment[1].ticket_id = ticket_dict["id"]
                             self._buffer_record(comment)
-                except RecordNotFoundException:
+                except:
                     LOGGER.warning(
                         "Unable to retrieve comments for ticket (ID: %s), "
                         "the Zendesk API returned a RecordNotFound error",
@@ -333,10 +333,6 @@ class Tickets(Stream):
                 execute_batch(tasks_batch)
                 tasks_batch = []
 
-                LOGGER.info(
-                    f"Processed {idx + 1} tickets. Time: {datetime.datetime.now() - start_time}"
-                )
-
             if should_yield:
                 for rec in self._empty_buffer():
                     yield rec
@@ -344,10 +340,10 @@ class Tickets(Stream):
                 emit_sub_stream_metrics(metrics_stream)
                 emit_sub_stream_metrics(comments_stream)
                 singer.write_state(state)
-
-            LOGGER.info(
-                f"Processed {idx + 1} tickets. Time: {datetime.datetime.now() - start_time}"
-            )
+            if (idx + 1) % batch_size == 0:
+                LOGGER.info(
+                    f"Processed {idx + 1} tickets. Time: {datetime.datetime.now() - start_time}"
+                )
 
         # Finish processing left requests
         if tasks_batch:
