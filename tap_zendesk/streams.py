@@ -10,7 +10,8 @@ from singer import metadata
 from singer import utils
 from singer.metrics import Point
 from tap_zendesk import metrics as zendesk_metrics
-
+import threading
+import concurrent.futures
 
 LOGGER = singer.get_logger()
 KEY_PROPERTIES = ["id"]
@@ -229,15 +230,89 @@ class Tickets(Stream):
                 )
                 sub_stream.count = 0
 
+        lock = threading.Lock()
+
+        def _process_audits(ticket_dict):
+            if audits_stream.is_selected():
+                try:
+                    for audit in audits_stream.sync(ticket_dict["id"]):
+                        with lock:
+                            zendesk_metrics.capture("ticket_audit")
+                            self._buffer_record(audit)
+                except RecordNotFoundException:
+                    LOGGER.warning(
+                        "Unable to retrieve audits for ticket (ID: %s), "
+                        "the Zendesk API returned a RecordNotFound error",
+                        ticket_dict["id"],
+                    )
+
+        def _process_metrics(ticket_dict):
+            if metrics_stream.is_selected():
+                try:
+                    for metric in metrics_stream.sync(ticket_dict["id"]):
+                        with lock:
+                            zendesk_metrics.capture("ticket_metric")
+                            self._buffer_record(metric)
+                except RecordNotFoundException:
+                    LOGGER.warning(
+                        "Unable to retrieve metrics for ticket (ID: %s), "
+                        "the Zendesk API returned a RecordNotFound error",
+                        ticket_dict["id"],
+                    )
+
+        def _process_comments(ticket_dict):
+            if comments_stream.is_selected():
+                try:
+                    # add ticket_id to ticket_comment so the comment can
+                    # be linked back to it's corresponding ticket
+                    for comment in comments_stream.sync(ticket_dict["id"]):
+                        with lock:
+                            zendesk_metrics.capture("ticket_comment")
+                            comment[1].ticket_id = ticket_dict["id"]
+                            self._buffer_record(comment)
+                except RecordNotFoundException:
+                    LOGGER.warning(
+                        "Unable to retrieve comments for ticket (ID: %s), "
+                        "the Zendesk API returned a RecordNotFound error",
+                        ticket_dict["id"],
+                    )
+
+        AUDITS = "audits"
+        METRICS = "metrics"
+        COMMENTS = "comments"
+
+        name_to_process_job = {
+            AUDITS: _process_audits,
+            METRICS: _process_metrics,
+            COMMENTS: _process_comments,
+        }
+
+        def _process_task(task):
+            name, ticket_dict = task
+            if name not in name_to_process_job:
+                LOGGER.error(
+                    f"Can't recognize {name} task. Should be one of {list(name_to_process_job.keys())}"
+                )
+                return
+
+            name_to_process_job[name](ticket_dict)
+
+        def execute_batch(tasks_batch):
+            max_workers = self.client.internal_config["max_workers"]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # 'for' is needed here to raise an exception if there is an exception occurred in any of functions.
+                for _ in executor.map(_process_task, tasks_batch):
+                    pass
+
         if audits_stream.is_selected():
             LOGGER.info("Syncing ticket_audits per ticket...")
 
-        for ticket in tickets:
+        batch_size = self.client.internal_config["batch_size"]
+        tasks_batch = []
+
+        start_time = datetime.datetime.now()
+        for idx, ticket in enumerate(tickets):
             zendesk_metrics.capture("ticket")
-            generated_timestamp_dt = datetime.datetime.utcfromtimestamp(
-                ticket.generated_timestamp
-            ).replace(tzinfo=pytz.UTC)
-            self.update_bookmark(state, utils.strftime(generated_timestamp_dt))
 
             ticket_dict = ticket.to_dict()
             ticket_dict.pop(
@@ -245,65 +320,22 @@ class Tickets(Stream):
             )  # NB: Fields is a duplicate of custom_fields, remove before emitting
             should_yield = self._buffer_record((self.stream, ticket_dict))
 
-            if audits_stream.is_selected():
-                try:
-                    for audit in audits_stream.sync(ticket_dict["id"]):
-                        counter = 0
-                        while counter < 3:
-                            try:
-                                # zendesk_metrics.capture("ticket_audit")
-                                self._buffer_record(audit)
-                                break
-                            except:
-                                counter += 1
-                                time.sleep(2)
-                except:
-                    LOGGER.warning(
-                        "Unable to retrieve audits for ticket (ID: %s), "
-                        "the Zendesk API returned a RecordNotFound error",
-                        ticket_dict["id"],
-                    )
+            if not tasks_batch:
+                generated_timestamp_dt = datetime.datetime.utcfromtimestamp(
+                    ticket.generated_timestamp
+                ).replace(tzinfo=pytz.UTC)
+                self.update_bookmark(state, utils.strftime(generated_timestamp_dt))
 
-            if metrics_stream.is_selected():
-                try:
-                    for metric in metrics_stream.sync(ticket_dict["id"]):
-                        counter = 0
-                        while counter < 3:
-                            try:
-                                # zendesk_metrics.capture("ticket_metric")
-                                self._buffer_record(metric)
-                                break
-                            except:
-                                counter += 1
-                                time.sleep(2)
-                except:
-                    LOGGER.warning(
-                        "Unable to retrieve metrics for ticket (ID: %s), "
-                        "the Zendesk API returned a RecordNotFound error",
-                        ticket_dict["id"],
-                    )
+            for name in [AUDITS, METRICS, COMMENTS]:
+                tasks_batch.append((name, ticket_dict))
 
-            if comments_stream.is_selected():
-                try:
-                    # add ticket_id to ticket_comment so the comment can
-                    # be linked back to it's corresponding ticket
-                    for comment in comments_stream.sync(ticket_dict["id"]):
-                        counter = 0
-                        while counter < 3:
-                            try:
-                                # zendesk_metrics.capture("ticket_comment")
-                                comment[1].ticket_id = ticket_dict["id"]
-                                self._buffer_record(comment)
-                                break
-                            except:
-                                counter += 1
-                                time.sleep(2)
-                except:
-                    LOGGER.warning(
-                        "Unable to retrieve comments for ticket (ID: %s), "
-                        "the Zendesk API returned a RecordNotFound error",
-                        ticket_dict["id"],
-                    )
+            if len(tasks_batch) >= batch_size:
+                execute_batch(tasks_batch)
+                tasks_batch = []
+
+                LOGGER.info(
+                    f"Processed {idx + 1} tickets. Time: {datetime.datetime.now() - start_time}"
+                )
 
             if should_yield:
                 for rec in self._empty_buffer():
@@ -311,14 +343,22 @@ class Tickets(Stream):
                 emit_sub_stream_metrics(audits_stream)
                 emit_sub_stream_metrics(metrics_stream)
                 emit_sub_stream_metrics(comments_stream)
-                # singer.write_state(state)
+                singer.write_state(state)
+
+            LOGGER.info(
+                f"Processed {idx + 1} tickets. Time: {datetime.datetime.now() - start_time}"
+            )
+
+        # Finish processing left requests
+        if tasks_batch:
+            execute_batch(tasks_batch)
 
         for rec in self._empty_buffer():
             yield rec
         emit_sub_stream_metrics(audits_stream)
         emit_sub_stream_metrics(metrics_stream)
         emit_sub_stream_metrics(comments_stream)
-        # singer.write_state(state)
+        singer.write_state(state)
 
 
 class TicketAudits(Stream):

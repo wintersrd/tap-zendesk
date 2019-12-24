@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
 
 from zenpy import Zenpy
@@ -16,7 +17,7 @@ from tap_zendesk.sync import sync_stream
 LOGGER = singer.get_logger()
 
 REQUIRED_CONFIG_KEYS = ["start_date", "subdomain"]
-
+CONFIG = {"rate_limit": 300, "max_workers": 10, "batch_size": 50}
 # default authentication
 OAUTH_CONFIG_KEYS = ["access_token"]
 
@@ -193,12 +194,14 @@ def get_session(config):
 
 @singer.utils.handle_top_exception(LOGGER)
 def main():
+    internal_config = CONFIG
     parsed_args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
 
     # OAuth has precedence
     creds = oauth_auth(parsed_args) or api_token_auth(parsed_args)
     session = get_session(parsed_args.config)
-    client = Zenpy(session=session, **creds)
+    client = Zenpy(session=session, ratelimit=internal_config["rate_limit"], **creds)
+    client.internal_config = internal_config
     if not client:
         LOGGER.error("""No suitable authentication keys provided.""")
 
