@@ -232,7 +232,11 @@ class Tickets(Stream):
         if audits_stream.is_selected():
             LOGGER.info("Syncing ticket_audits per ticket...")
 
+        counter = 0
         for ticket in tickets:
+            counter += 1
+            if counter % 50 == 0:
+                LOGGER.info(f"{counter} tickets processed")
             zendesk_metrics.capture("ticket")
             generated_timestamp_dt = datetime.datetime.utcfromtimestamp(
                 ticket.generated_timestamp
@@ -312,7 +316,7 @@ class Tickets(Stream):
                 emit_sub_stream_metrics(metrics_stream)
                 emit_sub_stream_metrics(comments_stream)
                 # singer.write_state(state)
-
+        LOGGER.info("All tickets processed")
         for rec in self._empty_buffer():
             yield rec
         emit_sub_stream_metrics(audits_stream)
